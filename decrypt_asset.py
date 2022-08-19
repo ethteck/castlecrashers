@@ -25,16 +25,16 @@ def write_file(data: bytes, path: Path):
     with open(path, 'wb') as f:
         f.write(data)
 
-def unzip_to_cok6_nref(infile: Path):
+def unzip_to_cok6_nrec(infile: Path):
     with zipfile.ZipFile(infile, 'r') as f:
         infolist = f.infolist()
         if len(infolist) > 1:
             raise RuntimeError("More than one file in the archive")
-        cok6_nref = infolist[0]
-        with f.open(cok6_nref, "r") as fo:
-            return cok6_nref.filename.upper(), fo.read()
+        cok6_nrec = infolist[0]
+        with f.open(cok6_nrec, "r") as fo:
+            return cok6_nrec.filename.upper(), fo.read()
 
-def zip_to_cok6_nref(outfile: Path, archive_name: str, data: bytes):
+def zip_to_cok6_nrec(outfile: Path, archive_name: str, data: bytes):
     with zipfile.ZipFile(outfile, 'w') as f:
         with f.open(archive_name, "w") as fo:
             fo.write(data)
@@ -54,7 +54,7 @@ def get_blowfish_key(name: str, data_len: int) -> bytes:
         name_crc = c_uint32(name_crc.value * 0x25)
         name_crc = c_uint32(name_crc.value + ord(name[i]))
 
-    # Do some math on the size of the .COK6.NREF to get a value from 0 to 15
+    # Do some math on the size of the .COK6.NREC to get a value from 0 to 15
     size_tmp = c_uint32(int(data_len / 16) % 16)
 
     # Select one of the 4 keystrings (division of the size var by 4)
@@ -104,7 +104,7 @@ def decrypt_file(infile: Path, outdir: Optional[Path]):
     Decrypts the asset file.
     """
 
-    name, input_data = unzip_to_cok6_nref(infile)
+    name, input_data = unzip_to_cok6_nrec(infile)
 
     blowfish_decrypted = blowfish_decrypt(name, input_data)
 
@@ -112,8 +112,6 @@ def decrypt_file(infile: Path, outdir: Optional[Path]):
     validate_checksum(blowfish_decrypted)
 
     swf_bytes = decrypted_to_swf(blowfish_decrypted)
-
-    #print(space_out(blowfish_decrypted[:0x20].hex()) + " - " + name)
 
     footer_data = build_footer(swf_bytes)
     if footer_data[:-4] != blowfish_decrypted[-len(footer_data):-4]:
@@ -127,9 +125,12 @@ def decrypt_file(infile: Path, outdir: Optional[Path]):
 def build_header(data: bytes) -> bytes:
     ret = b''
 
-    ret += b'\0' * 0x80
+    ret = bytearray(0x80)
+    ret[0:4] = b'6KOC'
+    ret[0x10:0x14] = len(data).to_bytes(4, byteorder="little")
+    ret[0x14:0x18] = 0x80.to_bytes(4, byteorder="little")
 
-    return ret
+    return bytes(ret)
 
 def build_footer(data: bytes) -> bytes:
     ret = b''
@@ -178,13 +179,16 @@ def encrypt_file(infile: Path, outdir: Optional[Path] = None):
 
     pre_compression_data = pre_compression_data[:-4] + checksum.to_bytes(4, byteorder="little")
 
-    archive_name = infile.stem.upper() + ".COK6.NREF"
+    archive_name = infile.stem.upper() + ".COK6.NREC"
 
     blowfish_encrypted = blowfish_encrypt(archive_name, pre_compression_data)
 
+    with open("eth.o", "wb") as f:
+        f.write(blowfish_encrypted)
+
     zip_path = outdir / (infile.stem.lower() + ".pak")
 
-    zip_to_cok6_nref(zip_path, archive_name, blowfish_encrypted)
+    zip_to_cok6_nrec(zip_path, archive_name, blowfish_encrypted)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
